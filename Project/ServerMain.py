@@ -11,7 +11,7 @@ flaskApp = Flask(__name__)
 
 class ServerSignals(QThread):
     updateCounter = pyqtSignal(int)
-    updateColor = pyqtSignal(int)
+    updateColor = pyqtSignal(object)
 
 serverSignals = ServerSignals()
 
@@ -26,7 +26,7 @@ def IncrementCounter():
     return jsonify({'success': True, 'counter': appState['counter']})
 @flaskApp.route('/decrement', methods=['POST'])
 def decrementCounter():
-    appState['counter'] += 1
+    appState['counter'] -= 1
     serverSignals.updateCounter.emit(appState['counter'])
     return jsonify({'success':True,'counter':appState['counter']})
 @flaskApp.route('/query-color',methods=['GET'])
@@ -37,7 +37,9 @@ def getColor():
 def setColor():
     data = request.get_json()
     if data and 'color' in data:
-        newColor = data['color'].lstring('#')
+        newColor = str(data['color']).strip().lstrip('#')
+        print(f"DEBUG: Received data on server: {newColor}")
+
         appState['color'] = newColor
         serverSignals.updateColor.emit(newColor)
         return jsonify({'success':True,'color':newColor})
@@ -45,7 +47,7 @@ def setColor():
 
 class ServerThread(QThread):
     def run(self):
-        flaskApp.run(host = '0.0.0.0', port=5050, debug=False) #check this line later
+        flaskApp.run(host = '10.0.2.15', port=5000, debug=False) #check this line later
 
 
 class ServerApp(QMainWindow):
@@ -57,18 +59,38 @@ class ServerApp(QMainWindow):
         self.serverThread = ServerThread()
         self.serverThread.start()
 
+        self.IncrementButton.clicked.connect(self.GuiIncrement)
+        self.DecrementButton.clicked.connect(self.GuiDecrement)
+        self.ColorText.returnPressed.connect(self.GuiColorChange)
+
+
         serverSignals.updateCounter.connect(self.updateCounterLabel)
         serverSignals.updateColor.connect(self.updateBackgroundColor)
 
         self.updateCounterLabel(appState['counter'])
         self.updateBackgroundColor(appState['color'])
 
+    def GuiIncrement(self):
+        appState['counter'] += 1
+        serverSignals.updateCounter.emit(appState['counter'])
+
+    def GuiDecrement(self):
+        appState['counter'] -= 1
+        serverSignals.updateCounter.emit(appState['counter'])
+    def GuiColorChange(self):
+        newColor = self.ColorText.text().strip().lstrip('#')
+        appState['color'] = newColor
+        serverSignals.updateColor.emit(newColor)
+
+        self.ColorText.clear()
+
     @pyqtSlot(int)
     def updateCounterLabel(self, newValue):
         self.CounterLabel.setText(f"{newValue}")
 
-    @pyqtSlot(int)
+    @pyqtSlot(object)
     def updateBackgroundColor(self, newColorHex):
+
         self.CounterLabel.setStyleSheet(f"background-color: #{newColorHex}; color: black;")
 
     def closeEvent(self, event):
