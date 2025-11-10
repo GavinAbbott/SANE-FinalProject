@@ -17,8 +17,8 @@ class ServerSignals(QThread):
 serverSignals = ServerSignals()
 
 @flaskApp.route('/query', methods=['GET']) #creats a GET route that calls the function directly below it when requested.
-def getCounter(): #this function returns the counter element in the appState dictionary.
-    return jsonify({'counter': appState['counter']})
+def Query(): #this function returns the counter element in the appState dictionary.
+    return jsonify({'counter': appState['counter'], 'color': appState['color']})
 
 @flaskApp.route('/increment',methods=['POST']) #cretes a POST route that calls the function directly below it when requested.
 #this function updates the counter element in the dictionary, then updates the label.
@@ -33,10 +33,6 @@ def decrementCounter():
     serverSignals.updateCounter.emit(appState['counter']) # sends signal to update the counter label.
     return jsonify({'success':True,'counter':appState['counter']}) #returns success to the client.
 
-@flaskApp.route('/query-color',methods=['GET']) #creats a GET route that calls the function that is directly below when requested.
-#this function returns the color element inside of the dictionary.
-def getColor():
-    return jsonify({'color': appState['color']}) #returns the color element inside of the dictionary in json format.
 
 @flaskApp.route('/color',methods=['POST']) #creates a post route that will call the function directly below when requested.
 def setColor():
