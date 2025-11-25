@@ -1,11 +1,13 @@
 import sys
 import cv2
 import time
+import os
 from fer import FER
 from PyQt5 import uic
 from PyQt5.QtWidgets import QApplication, QMainWindow
-from PyQt5.QtCore import QThread, pyqtSignal, pyqtSlot, QTimer, Qt
+from PyQt5.QtCore import QThread, pyqtSignal, pyqtSlot, QTimer, Qt, QUrl
 from PyQt5.QtGui import QImage, QPixmap
+from PyQt5.QtMultimedia import QMediaPlayer, QMediaContent
 from flask import Flask, jsonify, request
 
 appState = {'counter': 1}
@@ -55,6 +57,25 @@ class CombinedApp(QMainWindow):
 
         serverSignals.updateCounter.connect(self.UpdateCounterLabel)
         serverSignals.flashSignal.connect(self.StartFlash)
+        serverSignals.flashSignal.connect(self.PlaySound)
+
+        # Setup Media Player
+        self.mediaPlayer = QMediaPlayer()
+        soundPath = os.path.abspath("ding.mp3")
+
+        # Debugging: Check if file exists
+        if os.path.exists(soundPath):
+            print(f"Loading audio file from: {soundPath}")
+        else:
+            print(f"ERROR: Audio file not found at: {soundPath}")
+
+        url = QUrl.fromLocalFile(soundPath)
+        content = QMediaContent(url)
+        self.mediaPlayer.setMedia(content)
+        self.mediaPlayer.setVolume(100)  # Ensure volume is up
+
+        # Connect error signals to see why it fails
+        self.mediaPlayer.error.connect(self.HandlePlayerError)
 
         # Timer for the total duration of the flashing (3 seconds)
         self.flashDurationTimer = QTimer()
@@ -87,6 +108,16 @@ class CombinedApp(QMainWindow):
     @pyqtSlot(int)
     def UpdateCounterLabel(self, newValue):
         self.CounterLabel.setText(f"{newValue}")
+
+    @pyqtSlot()
+    def HandlePlayerError(self):
+        print(f"Media Player Error: {self.mediaPlayer.errorString()}")
+
+    @pyqtSlot()
+    def PlaySound(self):
+        if self.mediaPlayer.state() == QMediaPlayer.PlayingState:
+            self.mediaPlayer.setPosition(0)
+        self.mediaPlayer.play()
 
     @pyqtSlot()
     def StartFlash(self):
