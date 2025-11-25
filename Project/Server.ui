@@ -37,14 +37,7 @@
     </item>
     <item>
      <layout class="QGridLayout" name="gridLayout">
-      <item row="2" column="0">
-       <widget class="QLabel" name="happyLabel">
-        <property name="text">
-         <string>Happy:</string>
-        </property>
-       </widget>
-      </item>
-      <item row="0" column="0" colspan="5">
+      <item row="0" column="0" colspan="3">
        <widget class="QLabel" name="CounterLabel">
         <property name="font">
          <font>
@@ -62,13 +55,6 @@
         </property>
        </widget>
       </item>
-      <item row="1" column="0">
-       <widget class="QLabel" name="fpsLabel">
-        <property name="text">
-         <string>Fps:</string>
-        </property>
-       </widget>
-      </item>
       <item row="1" column="1">
        <widget class="QCheckBox" name="mirrorCheckBox">
         <property name="text">
@@ -76,24 +62,20 @@
         </property>
        </widget>
       </item>
-      <item row="2" column="1">
-       <widget class="QLabel" name="sadLabel">
+      <item row="1" column="0">
+       <widget class="QLabel" name="fpsLabel">
         <property name="text">
-         <string>Sad:</string>
+         <string>Fps:</string>
         </property>
        </widget>
       </item>
-      <item row="2" column="2">
-       <widget class="QLabel" name="angryLabel">
+      <item row="2" column="0" colspan="3">
+       <widget class="QLabel" name="emotionLabel">
         <property name="text">
-         <string>Angry:</string>
+         <string>TextLabel</string>
         </property>
-       </widget>
-      </item>
-      <item row="2" column="3">
-       <widget class="QLabel" name="neutralLabel">
-        <property name="text">
-         <string>Neutral:</string>
+        <property name="alignment">
+         <set>Qt::AlignCenter</set>
         </property>
        </widget>
       </item>

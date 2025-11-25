@@ -10,6 +10,9 @@ from PyQt5.QtGui import QImage, QPixmap
 from PyQt5.QtMultimedia import QMediaPlayer, QMediaContent
 from flask import Flask, jsonify, request
 
+# CONSTANTS
+HAPPY_THRESHOLD = 50  # threashold for when the algorithm will detect the presenter is happy in %
+
 appState = {'counter': 1}
 flaskApp = Flask(__name__)
 
@@ -62,20 +65,10 @@ class CombinedApp(QMainWindow):
         # Setup Media Player
         self.mediaPlayer = QMediaPlayer()
         soundPath = os.path.abspath("ding.mp3")
-
-        # Debugging: Check if file exists
-        if os.path.exists(soundPath):
-            print(f"Loading audio file from: {soundPath}")
-        else:
-            print(f"ERROR: Audio file not found at: {soundPath}")
-
         url = QUrl.fromLocalFile(soundPath)
         content = QMediaContent(url)
         self.mediaPlayer.setMedia(content)
-        self.mediaPlayer.setVolume(100)  # Ensure volume is up
-
-        # Connect error signals to see why it fails
-        self.mediaPlayer.error.connect(self.HandlePlayerError)
+        self.mediaPlayer.setVolume(100)
 
         # Timer for the total duration of the flashing (3 seconds)
         self.flashDurationTimer = QTimer()
@@ -108,10 +101,6 @@ class CombinedApp(QMainWindow):
     @pyqtSlot(int)
     def UpdateCounterLabel(self, newValue):
         self.CounterLabel.setText(f"{newValue}")
-
-    @pyqtSlot()
-    def HandlePlayerError(self):
-        print(f"Media Player Error: {self.mediaPlayer.errorString()}")
 
     @pyqtSlot()
     def PlaySound(self):
@@ -173,19 +162,18 @@ class CombinedApp(QMainWindow):
             firstFace = self.lastDetectionResult[0]
             emotions = firstFace['emotions']
             happyScore = emotions['happy'] * 100
-            sadScore = emotions['sad'] * 100
-            angryScore = emotions['angry'] * 100
-            neutralScore = emotions['neutral'] * 100
 
-            self.happyLabel.setText(f"Happy: {happyScore: .1f}%")
-            self.sadLabel.setText(f"Sad: {sadScore: .1f}%")
-            self.angryLabel.setText(f"Angry: {angryScore: .1f}%")
-            self.neutralLabel.setText(f"Neutral: {neutralScore: .1f}%")
+            # Logic for updating the emotionLabel based on the threshold
+            if happyScore >= HAPPY_THRESHOLD:
+                self.emotionLabel.setText("Good job, keep smiling!")
+                self.emotionLabel.setStyleSheet("background-color: green; color: white;")
+            else:
+                self.emotionLabel.setText("Smile more!")
+                self.emotionLabel.setStyleSheet("background-color: red; color: white;")
         else:
-            self.happyLabel.setText("Happy: ?%")
-            self.sadLabel.setText("Sad: ?%")
-            self.angryLabel.setText("Angry: ?%")
-            self.neutralLabel.setText("Neutral: ?%")
+            # Fallback if no face is detected
+            self.emotionLabel.setText("Scanning for face...")
+            self.emotionLabel.setStyleSheet("background-color: gray; color: white;")
 
         elapsedTime = currentTime - self.fpsStartTime
 
