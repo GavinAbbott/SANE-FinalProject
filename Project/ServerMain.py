@@ -8,24 +8,30 @@ from PyQt5.QtCore import QThread, pyqtSignal, pyqtSlot, QTimer, Qt
 from PyQt5.QtGui import QImage, QPixmap
 from flask import Flask, jsonify, request
 
-appState = {'counter': 1, 'color': '000000'}
+appState = {'counter': 1}
 flaskApp = Flask(__name__)
+
 
 class ServerSignals(QThread):
     updateCounter = pyqtSignal(int)
-    updateColor = pyqtSignal(object)
+    flashSignal = pyqtSignal()
+
 
 serverSignals = ServerSignals()
 
+
 @flaskApp.route('/query', methods=['GET'])
 def Query():
-    return jsonify({'counter': appState['counter'], 'color': appState['color']})
+    return jsonify({'counter': appState['counter']})
+
 
 @flaskApp.route('/increment', methods=['POST'])
 def IncrementCounter():
     appState['counter'] += 1
     serverSignals.updateCounter.emit(appState['counter'])
+    serverSignals.flashSignal.emit()
     return jsonify({'success': True, 'counter': appState['counter']})
+
 
 @flaskApp.route('/decrement', methods=['POST'])
 def DecrementCounter():
@@ -33,19 +39,11 @@ def DecrementCounter():
     serverSignals.updateCounter.emit(appState['counter'])
     return jsonify({'success': True, 'counter': appState['counter']})
 
-@flaskApp.route('/color', methods=['POST'])
-def SetColor():
-    data = request.get_json()
-    if data and 'color' in data:
-        newColor = str(data['color']).strip().lstrip('#')
-        appState['color'] = newColor
-        serverSignals.updateColor.emit(newColor)
-        return jsonify({'success': True, 'color': newColor})
-    return jsonify({'success': False, 'error': 'Invalid request'}), 400
 
 class ServerThread(QThread):
     def run(self):
         flaskApp.run(host='10.0.2.15', port=5000, debug=False)
+
 
 class CombinedApp(QMainWindow):
     def __init__(self):
@@ -55,12 +53,18 @@ class CombinedApp(QMainWindow):
         self.serverThread = ServerThread()
         self.serverThread.start()
 
-        self.IncrementButton.clicked.connect(self.GuiIncrement)
-        self.DecrementButton.clicked.connect(self.GuiDecrement)
-        self.ColorText.returnPressed.connect(self.GuiColorChange)
-
         serverSignals.updateCounter.connect(self.UpdateCounterLabel)
-        serverSignals.updateColor.connect(self.UpdateBackgroundColor)
+        serverSignals.flashSignal.connect(self.StartFlash)
+
+        # Timer for the total duration of the flashing (3 seconds)
+        self.flashDurationTimer = QTimer()
+        self.flashDurationTimer.setSingleShot(True)
+        self.flashDurationTimer.timeout.connect(self.StopFlash)
+
+        # Timer for the toggle interval (blinking speed)
+        self.flashToggleTimer = QTimer()
+        self.flashToggleTimer.timeout.connect(self.ToggleColor)
+        self.isFlashRed = False
 
         self.cap = cv2.VideoCapture(0)
         if not self.cap.isOpened():
@@ -77,27 +81,41 @@ class CombinedApp(QMainWindow):
         self.timer.timeout.connect(self.UpdateFrame)
         self.timer.start(0)
 
-    def GuiIncrement(self):
-        appState['counter'] += 1
-        serverSignals.updateCounter.emit(appState['counter'])
-
-    def GuiDecrement(self):
-        appState['counter'] -= 1
-        serverSignals.updateCounter.emit(appState['counter'])
-
-    def GuiColorChange(self):
-        newColor = self.ColorText.text().strip().lstrip('#')
-        appState['color'] = newColor
-        serverSignals.updateColor.emit(newColor)
-        self.ColorText.clear()
+        self.UpdateCounterLabel(appState['counter'])
+        self.StopFlash()  # Ensure it starts in default state
 
     @pyqtSlot(int)
     def UpdateCounterLabel(self, newValue):
         self.CounterLabel.setText(f"{newValue}")
 
-    @pyqtSlot(object)
-    def UpdateBackgroundColor(self, newColorHex):
-        self.CounterLabel.setStyleSheet(f"background-color: #{newColorHex}; color: black;")
+    @pyqtSlot()
+    def StartFlash(self):
+        # Restart the 3-second timer. If called while running, it resets to 3s.
+        self.flashDurationTimer.start(3000)
+
+        # If not already blinking, start the toggle timer
+        if not self.flashToggleTimer.isActive():
+            self.isFlashRed = True
+            self.SetRedStyle()
+            self.flashToggleTimer.start(200)  # Blink every 200ms
+
+    def ToggleColor(self):
+        if self.isFlashRed:
+            self.SetDefaultStyle()
+        else:
+            self.SetRedStyle()
+        self.isFlashRed = not self.isFlashRed
+
+    def StopFlash(self):
+        self.flashToggleTimer.stop()
+        self.SetDefaultStyle()
+        self.isFlashRed = False
+
+    def SetRedStyle(self):
+        self.CounterLabel.setStyleSheet("background-color: red; color: black;")
+
+    def SetDefaultStyle(self):
+        self.CounterLabel.setStyleSheet("background-color: #000000; color: white;")
 
     def UpdateFrame(self):
         ret, frame = self.cap.read()
@@ -146,11 +164,13 @@ class CombinedApp(QMainWindow):
             self.fpsFrameCount = 0
             self.fpsStartTime = currentTime
 
-        self.imageLabel.setPixmap(pixmap.scaled(self.imageLabel.size(), Qt.KeepAspectRatioByExpanding, Qt.SmoothTransformation))
+        self.imageLabel.setPixmap(
+            pixmap.scaled(self.imageLabel.size(), Qt.KeepAspectRatioByExpanding, Qt.SmoothTransformation))
 
     def closeEvent(self, event):
         self.cap.release()
         event.accept()
+
 
 if __name__ == '__main__':
     app = QApplication(sys.argv)
