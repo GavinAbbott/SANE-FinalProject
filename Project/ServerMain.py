@@ -1,114 +1,159 @@
 import sys
+import cv2
+import time
+from fer import FER
 from PyQt5 import uic
 from PyQt5.QtWidgets import QApplication, QMainWindow
-from PyQt5.QtCore import QThread, pyqtSignal, pyqtSlot
+from PyQt5.QtCore import QThread, pyqtSignal, pyqtSlot, QTimer, Qt
+from PyQt5.QtGui import QImage, QPixmap
 from flask import Flask, jsonify, request
 
-#dictionary that stores the counter data nad the color. doing this to bypass having to use global through every function.
 appState = {'counter': 1, 'color': '000000'}
-#creates a new flask application.
 flaskApp = Flask(__name__)
-#this class handles two threads that are created for updating the counter and the color. it inherits parts from the
-#QThread class.
+
 class ServerSignals(QThread):
     updateCounter = pyqtSignal(int)
     updateColor = pyqtSignal(object)
 
 serverSignals = ServerSignals()
 
-@flaskApp.route('/query', methods=['GET']) #creats a GET route that calls the function directly below it when requested.
-def Query(): #this function returns the counter element in the appState dictionary.
+@flaskApp.route('/query', methods=['GET'])
+def Query():
     return jsonify({'counter': appState['counter'], 'color': appState['color']})
 
-@flaskApp.route('/increment',methods=['POST']) #cretes a POST route that calls the function directly below it when requested.
-#this function updates the counter element in the dictionary, then updates the label.
+@flaskApp.route('/increment', methods=['POST'])
 def IncrementCounter():
-    appState['counter'] += 1 #updates counter element in dictionary.
-    serverSignals.updateCounter.emit(appState['counter']) #sends signal to update counter label.
-    return jsonify({'success': True, 'counter': appState['counter']}) #returns success to the post request.
-@flaskApp.route('/decrement', methods=['POST']) #creates a POST route that calls the function directly below it when requested.
-#this function decrements the counter element in the dictionary and also updates the counter label.
-def decrementCounter():
-    appState['counter'] -= 1 #decrements the counter element in the dictionary.
-    serverSignals.updateCounter.emit(appState['counter']) # sends signal to update the counter label.
-    return jsonify({'success':True,'counter':appState['counter']}) #returns success to the client.
+    appState['counter'] += 1
+    serverSignals.updateCounter.emit(appState['counter'])
+    return jsonify({'success': True, 'counter': appState['counter']})
 
+@flaskApp.route('/decrement', methods=['POST'])
+def DecrementCounter():
+    appState['counter'] -= 1
+    serverSignals.updateCounter.emit(appState['counter'])
+    return jsonify({'success': True, 'counter': appState['counter']})
 
-@flaskApp.route('/color',methods=['POST']) #creates a post route that will call the function directly below when requested.
-def setColor():
-    data = request.get_json() #gets the data that was posted by the client.
-    if data and 'color' in data: #makes sure that the dictionary in the data has color element.
-        newColor = str(data['color']).strip().lstrip('#') #converts the data into string and removes # if added.
-
-        appState['color'] = newColor #updates the dictionary to the color that the client sent.
-        serverSignals.updateColor.emit(newColor) #updates the background color by calling the signal.
-        return jsonify({'success':True,'color':newColor}) #returns success to the client
+@flaskApp.route('/color', methods=['POST'])
+def SetColor():
+    data = request.get_json()
+    if data and 'color' in data:
+        newColor = str(data['color']).strip().lstrip('#')
+        appState['color'] = newColor
+        serverSignals.updateColor.emit(newColor)
+        return jsonify({'success': True, 'color': newColor})
     return jsonify({'success': False, 'error': 'Invalid request'}), 400
-#this class creats another thread that handles the flask web server so that this can run in the background.
+
 class ServerThread(QThread):
     def run(self):
-        flaskApp.run(host = '10.0.2.15', port=5000, debug=False) #check this line later
+        flaskApp.run(host='10.0.2.15', port=5000, debug=False)
 
-#this class handles the main window of the GUI.
-class ServerApp(QMainWindow):
+class CombinedApp(QMainWindow):
     def __init__(self):
-        super().__init__() #super constructor. gets called when the class is first initialized.
+        super().__init__()
+        uic.loadUi('Server.ui', self)
 
-        uic.loadUi('Server.ui',self) #loads the UI
+        self.serverThread = ServerThread()
+        self.serverThread.start()
 
-        self.serverThread = ServerThread() #creates  the server thread class.
-        self.serverThread.start()#starts the server thread.
-        #here are all of the events that are connected to when the buttons are pressed.
         self.IncrementButton.clicked.connect(self.GuiIncrement)
         self.DecrementButton.clicked.connect(self.GuiDecrement)
         self.ColorText.returnPressed.connect(self.GuiColorChange)
-        #^^ I only did it this way because I forgot to add a button for it and I was too lazy to go back and add a button :)
 
-        #connects the two server signals to the respected functions.
-        serverSignals.updateCounter.connect(self.updateCounterLabel)
-        serverSignals.updateColor.connect(self.updateBackgroundColor)
-#------- these 3 functions handle the buttons that are on the server gui ------------
-    #this function simply increments the counter element in the dictionary and updates the counter label
+        serverSignals.updateCounter.connect(self.UpdateCounterLabel)
+        serverSignals.updateColor.connect(self.UpdateBackgroundColor)
+
+        self.cap = cv2.VideoCapture(0)
+        if not self.cap.isOpened():
+            return
+
+        self.fpsFrameCount = 0
+        self.fpsStartTime = time.time()
+
+        self.detector = FER(mtcnn=True)
+        self.emotionTimer = time.time()
+        self.lastDetectionResult = []
+
+        self.timer = QTimer()
+        self.timer.timeout.connect(self.UpdateFrame)
+        self.timer.start(0)
+
     def GuiIncrement(self):
-        appState['counter'] += 1 #updates the counter element in the dictionary.
-        serverSignals.updateCounter.emit(appState['counter']) #updates the label
-    #this function simply decrements the counter element in the dictionary and updates the counter label
-    def GuiDecrement(self):
-        appState['counter'] -= 1 #decrements the counter element in the dictionary.
-        serverSignals.updateCounter.emit(appState['counter']) #sends signal to update the label.
-    #this function changes the color of the gui. based off of what is in the text box on the server's gui.
-    def GuiColorChange(self):
-        newColor = self.ColorText.text().strip().lstrip('#') #gets the text from the text box, gets rid of the # if included.
-        appState['color'] = newColor #sets the color element in the dictionary to the new color.
-        serverSignals.updateColor.emit(newColor) #sends signal to update the background color.
+        appState['counter'] += 1
+        serverSignals.updateCounter.emit(appState['counter'])
 
+    def GuiDecrement(self):
+        appState['counter'] -= 1
+        serverSignals.updateCounter.emit(appState['counter'])
+
+    def GuiColorChange(self):
+        newColor = self.ColorText.text().strip().lstrip('#')
+        appState['color'] = newColor
+        serverSignals.updateColor.emit(newColor)
         self.ColorText.clear()
 
-    @pyqtSlot(int) #this defines the slot for the signal thread. calls the function directly below it.
-    def updateCounterLabel(self, newValue): # this function simply changes the counter label to what is in the dictionary.
+    @pyqtSlot(int)
+    def UpdateCounterLabel(self, newValue):
         self.CounterLabel.setText(f"{newValue}")
 
-    @pyqtSlot(object) #creats another slot that is recieving an object.
-    def updateBackgroundColor(self, newColorHex): #this function updates the background color to what is in the dictionary.
-
+    @pyqtSlot(object)
+    def UpdateBackgroundColor(self, newColorHex):
         self.CounterLabel.setStyleSheet(f"background-color: #{newColorHex}; color: black;")
-        #The GUI basically has a really large label that acts like the background for the main portion of the ui.
-        #so this command is basically changing the background color of that label, which gives the appearance of that the
-        #backgound of the UI is changing.
-    #makes sure to close when the close everything when the window is closed.
+
+    def UpdateFrame(self):
+        ret, frame = self.cap.read()
+        if not ret:
+            return
+
+        if self.mirrorCheckBox.isChecked():
+            frame = cv2.flip(frame, 1)
+
+        image = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        h, w, ch = image.shape
+        bytesPerLine = ch * w
+        qtImage = QImage(image.data, w, h, bytesPerLine, QImage.Format_RGB888)
+        pixmap = QPixmap.fromImage(qtImage)
+
+        self.fpsFrameCount += 1
+        currentTime = time.time()
+
+        if currentTime - self.emotionTimer >= 2:
+            self.lastDetectionResult = self.detector.detect_emotions(frame)
+            self.emotionTimer = currentTime
+
+        if self.lastDetectionResult:
+            firstFace = self.lastDetectionResult[0]
+            emotions = firstFace['emotions']
+            happyScore = emotions['happy'] * 100
+            sadScore = emotions['sad'] * 100
+            angryScore = emotions['angry'] * 100
+            neutralScore = emotions['neutral'] * 100
+
+            self.happyLabel.setText(f"Happy: {happyScore: .1f}%")
+            self.sadLabel.setText(f"Sad: {sadScore: .1f}%")
+            self.angryLabel.setText(f"Angry: {angryScore: .1f}%")
+            self.neutralLabel.setText(f"Neutral: {neutralScore: .1f}%")
+        else:
+            self.happyLabel.setText("Happy: ?%")
+            self.sadLabel.setText("Sad: ?%")
+            self.angryLabel.setText("Angry: ?%")
+            self.neutralLabel.setText("Neutral: ?%")
+
+        elapsedTime = currentTime - self.fpsStartTime
+
+        if elapsedTime >= 1:
+            fps = self.fpsFrameCount / elapsedTime
+            self.fpsLabel.setText(f"FPS: {fps: .2f}")
+            self.fpsFrameCount = 0
+            self.fpsStartTime = currentTime
+
+        self.imageLabel.setPixmap(pixmap.scaled(self.imageLabel.size(), Qt.KeepAspectRatioByExpanding, Qt.SmoothTransformation))
+
     def closeEvent(self, event):
+        self.cap.release()
         event.accept()
 
 if __name__ == '__main__':
-    app = QApplication(sys.argv) #defines the application.
-    window = ServerApp()# defines the window.
-    window.show() #shows the window
-    sys.exit(app.exec_()) #exits when window is exited.
-
-
-
-
-
-
-
-
+    app = QApplication(sys.argv)
+    window = CombinedApp()
+    window.show()
+    sys.exit(app.exec_())
