@@ -13,7 +13,7 @@ from flask import Flask, jsonify, request
 # CONSTANTS
 HAPPY_THRESHOLD = 50
 
-appState = {'counter': 1}
+appState = {'counter': 0}
 flaskApp = Flask(__name__)
 
 
@@ -95,6 +95,7 @@ class CombinedApp(QMainWindow):
         self.alert2Time = -1
         self.blinkState = False
         self.blinkMode = None
+        self.previousTimeLabelText = ""
 
         # --- CAMERA SETUP ---
         self.cap = cv2.VideoCapture(0)
@@ -125,11 +126,20 @@ class CombinedApp(QMainWindow):
     def StartPresentation(self):
         try:
             total_seconds = self.ParseTimeInput(self.PresentationLengthEdit.text())
+
+            if total_seconds == -1:
+                self.TriggerInvalidTimeAlert()
+                return
+
             self.alert1Time = self.ParseTimeInput(self.Alert1Edit.text())
             self.alert2Time = self.ParseTimeInput(self.Alert2Edit.text())
         except ValueError:
             self.TimeLeftLabel.setText("Invalid Time Format")
             return
+
+        # Reset Counter Logic
+        appState['counter'] = 0
+        serverSignals.updateCounter.emit(appState['counter'])
 
         self.isPresentationRunning = True
         self.timeRemaining = total_seconds
@@ -156,6 +166,20 @@ class CombinedApp(QMainWindow):
         self.Alert2Edit.setEnabled(True)
 
         self.StartPresentationButton.setText("Start Presentation")
+
+    def TriggerInvalidTimeAlert(self):
+        current_text = self.TimeLeftLabel.text()
+        if current_text != "Please insert length of presentation":
+            self.previousTimeLabelText = current_text
+
+        self.TimeLeftLabel.setText("Please insert length of presentation")
+        self.TimeLeftLabel.setStyleSheet("background-color: red; color: white;")
+        QTimer.singleShot(5000, self.ResetTimeLabelError)
+
+    def ResetTimeLabelError(self):
+        if not self.isPresentationRunning:
+            self.TimeLeftLabel.setText(self.previousTimeLabelText)
+            self.TimeLeftLabel.setStyleSheet("")
 
     def UpdatePresentationTimer(self):
         self.timeRemaining -= 1
