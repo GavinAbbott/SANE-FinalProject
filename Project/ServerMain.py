@@ -4,14 +4,14 @@ import time
 import os
 from fer import FER
 from PyQt5 import uic
-from PyQt5.QtWidgets import QApplication, QMainWindow
+from PyQt5.QtWidgets import QApplication, QMainWindow, QMessageBox
 from PyQt5.QtCore import QThread, pyqtSignal, pyqtSlot, QTimer, Qt, QUrl
 from PyQt5.QtGui import QImage, QPixmap
 from PyQt5.QtMultimedia import QMediaPlayer, QMediaContent
 from flask import Flask, jsonify, request
 
 # CONSTANTS
-HAPPY_THRESHOLD = 50  # threashold for when the algorithm will detect the presenter is happy in %
+HAPPY_THRESHOLD = 50
 
 appState = {'counter': 1}
 flaskApp = Flask(__name__)
@@ -62,7 +62,6 @@ class CombinedApp(QMainWindow):
         serverSignals.flashSignal.connect(self.StartFlash)
         serverSignals.flashSignal.connect(self.PlaySound)
 
-        # Setup Media Player
         self.mediaPlayer = QMediaPlayer()
         soundPath = os.path.abspath("ding.mp3")
         url = QUrl.fromLocalFile(soundPath)
@@ -70,16 +69,34 @@ class CombinedApp(QMainWindow):
         self.mediaPlayer.setMedia(content)
         self.mediaPlayer.setVolume(100)
 
-        # Timer for the total duration of the flashing (3 seconds)
+        # --- COUNTER FLASH TIMERS ---
         self.flashDurationTimer = QTimer()
         self.flashDurationTimer.setSingleShot(True)
         self.flashDurationTimer.timeout.connect(self.StopFlash)
 
-        # Timer for the toggle interval (blinking speed)
         self.flashToggleTimer = QTimer()
         self.flashToggleTimer.timeout.connect(self.ToggleColor)
         self.isFlashRed = False
 
+        # --- PRESENTATION TIMER SETUP ---
+        self.StartPresentationButton.clicked.connect(self.TogglePresentation)
+
+        self.presentationTimer = QTimer()
+        self.presentationTimer.timeout.connect(self.UpdatePresentationTimer)
+        self.presentationTimer.setInterval(1000)
+
+        self.blinkTimer = QTimer()
+        self.blinkTimer.timeout.connect(self.BlinkTimeLabel)
+        self.blinkTimer.setInterval(500)
+
+        self.isPresentationRunning = False
+        self.timeRemaining = 0
+        self.alert1Time = -1
+        self.alert2Time = -1
+        self.blinkState = False
+        self.blinkMode = None
+
+        # --- CAMERA SETUP ---
         self.cap = cv2.VideoCapture(0)
         if not self.cap.isOpened():
             return
@@ -96,8 +113,117 @@ class CombinedApp(QMainWindow):
         self.timer.start(0)
 
         self.UpdateCounterLabel(appState['counter'])
-        self.StopFlash()  # Ensure it starts in default state
+        self.StopFlash()
 
+    # --- PRESENTATION TIMER LOGIC ---
+    def TogglePresentation(self):
+        if not self.isPresentationRunning:
+            self.StartPresentation()
+        else:
+            self.StopPresentation()
+
+    def StartPresentation(self):
+        try:
+            total_seconds = self.ParseTimeInput(self.PresentationLengthEdit.text())
+            self.alert1Time = self.ParseTimeInput(self.Alert1Edit.text())
+            self.alert2Time = self.ParseTimeInput(self.Alert2Edit.text())
+        except ValueError:
+            self.TimeLeftLabel.setText("Invalid Time Format")
+            return
+
+        self.isPresentationRunning = True
+        self.timeRemaining = total_seconds
+
+        self.PresentationLengthEdit.setEnabled(False)
+        self.Alert1Edit.setEnabled(False)
+        self.Alert2Edit.setEnabled(False)
+
+        self.StartPresentationButton.setText("Stop Presentation")
+
+        self.UpdateTimerLabelDisplay()
+        self.presentationTimer.start()
+
+    def StopPresentation(self):
+        self.presentationTimer.stop()
+        self.blinkTimer.stop()
+
+        self.isPresentationRunning = False
+        self.blinkMode = None
+        self.TimeLeftLabel.setStyleSheet("")
+
+        self.PresentationLengthEdit.setEnabled(True)
+        self.Alert1Edit.setEnabled(True)
+        self.Alert2Edit.setEnabled(True)
+
+        self.StartPresentationButton.setText("Start Presentation")
+
+    def UpdatePresentationTimer(self):
+        self.timeRemaining -= 1
+        self.UpdateTimerLabelDisplay()
+
+        if self.timeRemaining == self.alert1Time or self.timeRemaining == self.alert2Time:
+            self.TriggerOrangeAlert()
+
+        if self.timeRemaining <= 0:
+            if self.blinkMode != 'RED':
+                self.blinkMode = 'RED'
+                if not self.blinkTimer.isActive():
+                    self.blinkTimer.start()
+
+    def TriggerOrangeAlert(self):
+        self.blinkMode = 'ORANGE'
+        if not self.blinkTimer.isActive():
+            self.blinkTimer.start()
+        QTimer.singleShot(5000, self.StopOrangeAlert)
+
+    def StopOrangeAlert(self):
+        if self.blinkMode == 'ORANGE':
+            self.blinkMode = None
+            self.blinkTimer.stop()
+            self.TimeLeftLabel.setStyleSheet("")
+
+    def BlinkTimeLabel(self):
+        self.blinkState = not self.blinkState
+
+        if self.blinkMode == 'RED':
+            if self.blinkState:
+                self.TimeLeftLabel.setStyleSheet("background-color: red; color: white;")
+            else:
+                self.TimeLeftLabel.setStyleSheet("background-color: transparent; color: black;")
+
+        elif self.blinkMode == 'ORANGE':
+            if self.blinkState:
+                self.TimeLeftLabel.setStyleSheet("background-color: orange; color: white;")
+            else:
+                self.TimeLeftLabel.setStyleSheet("background-color: transparent; color: black;")
+        else:
+            self.TimeLeftLabel.setStyleSheet("")
+
+    def UpdateTimerLabelDisplay(self):
+        abs_seconds = abs(self.timeRemaining)
+        mins, secs = divmod(abs_seconds, 60)
+
+        time_str = f"{mins:02}:{secs:02}"
+
+        if self.timeRemaining < 0:
+            self.TimeLeftLabel.setText(f"-{time_str}")
+        else:
+            self.TimeLeftLabel.setText(time_str)
+
+    def ParseTimeInput(self, text):
+        text = text.strip()
+        if not text:
+            return -1
+
+        if ':' in text:
+            parts = text.split(':')
+            minutes = int(parts[0])
+            seconds = int(parts[1])
+            return (minutes * 60) + seconds
+        else:
+            return int(text) * 60
+
+    # --- SERVER/COUNTER LOGIC ---
     @pyqtSlot(int)
     def UpdateCounterLabel(self, newValue):
         self.CounterLabel.setText(f"{newValue}")
@@ -110,14 +236,11 @@ class CombinedApp(QMainWindow):
 
     @pyqtSlot()
     def StartFlash(self):
-        # Restart the 3-second timer. If called while running, it resets to 3s.
         self.flashDurationTimer.start(3000)
-
-        # If not already blinking, start the toggle timer
         if not self.flashToggleTimer.isActive():
             self.isFlashRed = True
             self.SetRedStyle()
-            self.flashToggleTimer.start(200)  # Blink every 200ms
+            self.flashToggleTimer.start(200)
 
     def ToggleColor(self):
         if self.isFlashRed:
@@ -137,6 +260,7 @@ class CombinedApp(QMainWindow):
     def SetDefaultStyle(self):
         self.CounterLabel.setStyleSheet("background-color: #000000; color: white;")
 
+    # --- FRAME UPDATE LOGIC ---
     def UpdateFrame(self):
         ret, frame = self.cap.read()
         if not ret:
@@ -163,7 +287,6 @@ class CombinedApp(QMainWindow):
             emotions = firstFace['emotions']
             happyScore = emotions['happy'] * 100
 
-            # Logic for updating the emotionLabel based on the threshold
             if happyScore >= HAPPY_THRESHOLD:
                 self.emotionLabel.setText("Good job, keep smiling!")
                 self.emotionLabel.setStyleSheet("background-color: green; color: white;")
@@ -171,7 +294,6 @@ class CombinedApp(QMainWindow):
                 self.emotionLabel.setText("Smile more!")
                 self.emotionLabel.setStyleSheet("background-color: red; color: white;")
         else:
-            # Fallback if no face is detected
             self.emotionLabel.setText("Scanning for face...")
             self.emotionLabel.setStyleSheet("background-color: gray; color: white;")
 
