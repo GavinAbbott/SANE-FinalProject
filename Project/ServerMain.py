@@ -8,7 +8,8 @@ from PyQt5 import uic
 from PyQt5.QtWidgets import QApplication, QMainWindow, QMessageBox
 from PyQt5.QtCore import QThread, pyqtSignal, pyqtSlot, QTimer, Qt, QUrl
 from PyQt5.QtGui import QImage, QPixmap
-from PyQt5.QtMultimedia import QMediaPlayer, QMediaContent
+# Switched from QMediaPlayer to QSoundEffect for lower latency
+from PyQt5.QtMultimedia import QSoundEffect
 from flask import Flask, jsonify, request
 
 # CONSTANTS
@@ -124,12 +125,12 @@ class CombinedApp(QMainWindow):
         serverSignals.flashSignal.connect(self.StartFlash)
         serverSignals.flashSignal.connect(self.PlaySound)
 
-        self.mediaPlayer = QMediaPlayer()
-        soundPath = os.path.abspath("ding.mp3")
+        # Switched to QSoundEffect for low-latency audio
+        self.soundEffect = QSoundEffect()
+        soundPath = os.path.abspath("ding.wav")
         url = QUrl.fromLocalFile(soundPath)
-        content = QMediaContent(url)
-        self.mediaPlayer.setMedia(content)
-        self.mediaPlayer.setVolume(100)
+        self.soundEffect.setSource(url)
+        self.soundEffect.setVolume(1.0)  # Volume is 0.0 to 1.0 for SoundEffect
 
         # --- COUNTER FLASH TIMERS ---
         self.flashDurationTimer = QTimer()
@@ -324,9 +325,7 @@ class CombinedApp(QMainWindow):
 
     @pyqtSlot()
     def PlaySound(self):
-        if self.mediaPlayer.state() == QMediaPlayer.PlayingState:
-            self.mediaPlayer.setPosition(0)
-        self.mediaPlayer.play()
+        self.soundEffect.play()
 
     @pyqtSlot()
     def StartFlash(self):
