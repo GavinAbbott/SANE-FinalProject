@@ -2,6 +2,7 @@ import sys
 import cv2
 import time
 import os
+import datetime
 from fer import FER
 from PyQt5 import uic
 from PyQt5.QtWidgets import QApplication, QMainWindow, QMessageBox
@@ -50,6 +51,67 @@ class ServerThread(QThread):
         flaskApp.run(host='10.0.2.15', port=5000, debug=False)
 
 
+# --- NEW POPUP CLASS ---
+class SummaryPopup(QMainWindow):
+    def __init__(self, start_time, time_left, uh_count):
+        super().__init__()
+        uic.loadUi('popup.ui', self)
+
+        # Calculate actual presentation duration
+        self.actual_duration = start_time - time_left
+        self.start_time_val = start_time
+        self.time_left_val = time_left
+        self.uh_count_val = uh_count
+
+        # Helper function to format seconds into MM:SS
+        def format_time(seconds):
+            mins, secs = divmod(abs(seconds), 60)
+            sign = "-" if seconds < 0 else ""
+            return f"{sign}{mins:02}:{secs:02}"
+
+        # Set the labels
+        self.str_start_time = format_time(start_time)
+        self.str_time_left = format_time(time_left)
+        self.str_total_duration = format_time(self.actual_duration)
+
+        self.PresentationStartTimeLabel.setText(self.str_start_time)
+        self.PresentationTimeLeftLabel.setText(self.str_time_left)
+        self.TotalPresentationTimeLabel.setText(self.str_total_duration)
+        self.TotalUhCounterLabel.setText(str(uh_count))
+
+        # Connect Buttons using new names
+        self.ContinueButton.clicked.connect(self.close)
+        self.SaveDataButton.clicked.connect(self.SaveToFile)
+
+    def SaveToFile(self):
+        try:
+            # Generate unique filename with timestamp
+            timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+            filename = f"presentation_summary_{timestamp}.txt"
+
+            # 1. Get the directory where this python script is located
+            script_dir = os.path.dirname(os.path.abspath(__file__))
+
+            # 2. Combine that directory with the filename
+            full_path = os.path.join(script_dir, filename)
+
+            with open(full_path, "w") as file:
+                file.write("--- Presentation Summary ---\n")
+                file.write(f"Date: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n")
+                file.write(f"Presentation Length Set: {self.str_start_time}\n")
+                file.write(f"Time Left at Stop:       {self.str_time_left}\n")
+                file.write(f"Actual Duration:         {self.str_total_duration}\n")
+                file.write(f"Total Uh Count:          {self.uh_count_val}\n")
+
+            print(f"Successfully saved to: {full_path}")
+
+            # Close the popup window after saving
+            self.close()
+
+        except Exception as e:
+            print(f"Error saving file: {e}")
+
+
 class CombinedApp(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -91,6 +153,7 @@ class CombinedApp(QMainWindow):
 
         self.isPresentationRunning = False
         self.timeRemaining = 0
+        self.initialDuration = 0  # Track initial time for the summary popup
         self.alert1Time = -1
         self.alert2Time = -1
         self.blinkState = False
@@ -142,6 +205,7 @@ class CombinedApp(QMainWindow):
         serverSignals.updateCounter.emit(appState['counter'])
 
         self.isPresentationRunning = True
+        self.initialDuration = total_seconds  # Store this so we can calculate total time later
         self.timeRemaining = total_seconds
 
         self.PresentationLengthEdit.setEnabled(False)
@@ -154,6 +218,12 @@ class CombinedApp(QMainWindow):
         self.presentationTimer.start()
 
     def StopPresentation(self):
+        # --- SHOW SUMMARY POPUP ---
+        # We launch the popup here passing: Initial Time, Time Left, and Counter
+        self.summaryPopup = SummaryPopup(self.initialDuration, self.timeRemaining, appState['counter'])
+        self.summaryPopup.show()
+
+        # Reset Timer Logic
         self.presentationTimer.stop()
         self.blinkTimer.stop()
 
