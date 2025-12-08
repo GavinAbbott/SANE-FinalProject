@@ -127,7 +127,7 @@ class CombinedApp(QMainWindow):
 
         # Switched to QSoundEffect for low-latency audio
         self.soundEffect = QSoundEffect()
-        soundPath = os.path.abspath("ding.wav")
+        soundPath = os.path.abspath("ding.mp3")
         url = QUrl.fromLocalFile(soundPath)
         self.soundEffect.setSource(url)
         self.soundEffect.setVolume(1.0)  # Volume is 0.0 to 1.0 for SoundEffect
@@ -191,12 +191,35 @@ class CombinedApp(QMainWindow):
         try:
             total_seconds = self.ParseTimeInput(self.PresentationLengthEdit.text())
 
-            if total_seconds == -1:
+            if total_seconds <= 0:  # Ensure presentation time is positive
                 self.TriggerInvalidTimeAlert()
                 return
 
-            self.alert1Time = self.ParseTimeInput(self.Alert1Edit.text())
-            self.alert2Time = self.ParseTimeInput(self.Alert2Edit.text())
+            # Helper function to validate alert time
+            def validate_alert(time_val):
+                # Must be an integer, > 0, and < total_seconds
+                return time_val > 0 and time_val < total_seconds
+
+            # Process Alert 1
+            alert1_input = self.Alert1Edit.text().strip()
+            self.alert1Time = self.ParseTimeInput(alert1_input)
+
+            # If invalid or out of range, default to 1/2 time
+            if not validate_alert(self.alert1Time):
+                self.alert1Time = int(total_seconds / 2)
+                mins, secs = divmod(self.alert1Time, 60)
+                self.Alert1Edit.setText(f"{mins:02}:{secs:02}")
+
+            # Process Alert 2
+            alert2_input = self.Alert2Edit.text().strip()
+            self.alert2Time = self.ParseTimeInput(alert2_input)
+
+            # If invalid or out of range, default to 1/4 time
+            if not validate_alert(self.alert2Time):
+                self.alert2Time = int(total_seconds / 4)
+                mins, secs = divmod(self.alert2Time, 60)
+                self.Alert2Edit.setText(f"{mins:02}:{secs:02}")
+
         except ValueError:
             self.TimeLeftLabel.setText("Invalid Time Format")
             return
@@ -312,11 +335,17 @@ class CombinedApp(QMainWindow):
 
         if ':' in text:
             parts = text.split(':')
-            minutes = int(parts[0])
-            seconds = int(parts[1])
-            return (minutes * 60) + seconds
+            try:
+                minutes = int(parts[0])
+                seconds = int(parts[1])
+                return (minutes * 60) + seconds
+            except ValueError:
+                return -1  # Return -1 for invalid parts
         else:
-            return int(text) * 60
+            try:
+                return int(text) * 60
+            except ValueError:
+                return -1  # Return -1 if not a number
 
     # --- SERVER/COUNTER LOGIC ---
     @pyqtSlot(int)
@@ -398,6 +427,7 @@ class CombinedApp(QMainWindow):
             self.fpsFrameCount = 0
             self.fpsStartTime = currentTime
 
+        # Updated to use KeepAspectRatio to allow shrinking
         self.imageLabel.setPixmap(
             pixmap.scaled(self.imageLabel.size(), Qt.KeepAspectRatioByExpanding, Qt.SmoothTransformation))
 
